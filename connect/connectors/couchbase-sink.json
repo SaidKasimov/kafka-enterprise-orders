@@ -1,0 +1,17 @@
+{
+  "name": "couchbase-sink-order-analytics",
+  "config": {
+    "connector.class": "com.couchbase.connect.kafka.CouchbaseSinkConnector",
+    "tasks.max": "1",
+    "topics": "order-analytics",
+    "couchbase.bootstrap.servers": "couchbase",
+    "couchbase.bucket": "order_analytics",
+    "couchbase.username": "Administrator",
+    "couchbase.password": "password",
+    "couchbase.enable.tls": "false",
+    "couchbase.document.id": "${topic}-${partition}-${offset}",
+    "value.converter": "org.apache.kafka.connect.storage.StringConverter",
+    "key.converter": "org.apache.kafka.connect.storage.StringConverter"
+  }
+}
+
