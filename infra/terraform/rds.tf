@@ -33,8 +33,7 @@ resource "aws_security_group" "rds" {
 
 resource "aws_db_instance" "orders_db" {
   identifier              = "${var.project_name}-db"
-  engine                  = "postgres"
-  engine_version          = 
+  engine                  = "postgres" 
   instance_class          = "db.t3.micro"
   allocated_storage       = 20
   username                = var.rds_username
