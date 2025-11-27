@@ -1,6 +1,3 @@
-####################################
-# ECS cluster
-####################################
 resource "aws_ecs_cluster" "app_cluster" {
   name = "${var.project_name}-cluster"
 
@@ -14,42 +11,47 @@ resource "aws_ecs_cluster" "app_cluster" {
   }
 }
 
-####################################
-# IAM ROLES: используем существующие
-####################################
-
-# Вместо resource "aws_iam_role" – берём уже созданную роль по имени.
-# Роль должна уже существовать в AWS IAM:
-#   name = "<project_name>-ecs-task-execution"
-data "aws_iam_role" "ecs_task_execution" {
+resource "aws_iam_role" "ecs_task_execution" {
   name = "${var.project_name}-ecs-task-execution"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
 }
 
-# Аналогично для task role
-data "aws_iam_role" "ecs_task_role" {
-  name = "${var.project_name}-ecs-task-role"
-}
-
-# Если хочешь, можно оставить attachment (он idempotent),
-# но привязываем политику к роли, которую нашли через data.
 resource "aws_iam_role_policy_attachment" "ecs_task_execution_policy" {
-  role       = data.aws_iam_role.ecs_task_execution.name
+  role       = aws_iam_role.ecs_task_execution.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-####################################
-# Task definition (Fargate)
-####################################
+# Task role (for future: SSM, Secrets Manager, etc.)
+resource "aws_iam_role" "ecs_task_role" {
+  name = "${var.project_name}-ecs-task-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+# Example: ORDER PRODUCER task definition (Fargate)
 resource "aws_ecs_task_definition" "order_producer" {
   family                   = "${var.project_name}-producer"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
   cpu                      = 256
   memory                   = 512
-
-  # ВАЖНО: тут теперь ссылки на data.*, а не на resource aws_iam_role.*
-  execution_role_arn       = data.aws_iam_role.ecs_task_execution.arn
-  task_role_arn            = data.aws_iam_role.ecs_task_role.arn
+  execution_role_arn       = aws_iam_role.ecs_task_execution.arn
+  task_role_arn            = aws_iam_role.ecs_task_role.arn
 
   container_definitions = jsonencode([
     {
@@ -73,7 +75,6 @@ resource "aws_ecs_task_definition" "order_producer" {
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          # Просто строка-имя, без отдельного ресурса log_group.
           awslogs-group         = "/ecs/${var.project_name}-producer"
           awslogs-region        = var.aws_region
           awslogs-stream-prefix = "ecs"
@@ -88,26 +89,11 @@ resource "aws_ecs_task_definition" "order_producer" {
   }
 }
 
-####################################
-# CloudWatch Log Group
-####################################
-# РАНЬШЕ было так:
-#
-# resource "aws_cloudwatch_log_group" "producer" {
-#   name              = "/ecs/${var.project_name}-producer"
-#   retention_in_days = 7
-# }
-#
-# Эта строка даёт конфликт "ResourceAlreadyExistsException",
-# потому что группа логов уже есть.
-#
-# ПРОСТО УДАЛЯЕМ этот ресурс.
-# ECS сам будет использовать существующую группу логов
-# (или ты можешь создать её руками один раз).
+resource "aws_cloudwatch_log_group" "producer" {
+  name              = "/ecs/${var.project_name}-producer"
+  retention_in_days = 7
+}
 
-####################################
-# ECS Service
-####################################
 resource "aws_ecs_service" "order_producer" {
   name            = "${var.project_name}-producer-svc"
   cluster         = aws_ecs_cluster.app_cluster.id
@@ -116,8 +102,8 @@ resource "aws_ecs_service" "order_producer" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets          = [aws_subnet.public_a.id, aws_subnet.public_b.id]
-    security_groups  = [aws_security_group.ecs_tasks.id]
+    subnets         = [aws_subnet.public_a.id, aws_subnet.public_b.id]
+    security_groups = [aws_security_group.ecs_tasks.id]
     assign_public_ip = true
   }
 
